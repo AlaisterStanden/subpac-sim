@@ -694,11 +694,11 @@
             <div class="modalgrid">
                 <div class="codebox">
                     <div class="hint">Type exactly:</div>
-                    <div class="hint" style="color: var(--danger);">SIMULATE ONLY</div>
+                    <div class="hint" style="color: var(--danger);">CONFIRM ARMED</div>
                 </div>
                 <div class="codebox">
                     <div class="hint">Training phrase</div>
-                    <input id="phrase" placeholder="SIMULATE ONLY" />
+                    <input id="phrase" placeholder="INPUT HERE" />
                 </div>
             </div>
 
@@ -1303,18 +1303,35 @@
 
             case "code2": {
                 const p = rest.join(" ").trim();
-                if(!p){
+                if (!p) {
                     pushLine("Usage: code2 <phrase>", "line dim");
                     break;
                 }
+
+                // Whatever the user typed
                 code2.value = p;
-                const expected = "TRAINING CONFIRMED";
-                state.code2Verified = (p.trim().toUpperCase() === expected);
+
+                // Accept if it matches ANY of these 4 phrases (case-insensitive)
+                const expectedList = [
+                    "K19-7QF4-19X2",
+                    "R07-3LM9-70P6",
+                    "V33-8NC1-33T0",
+                    "S12-5DR8-12H7"
+                ].map(s => s.trim().toUpperCase());
+
+                const typed = p.trim().toUpperCase();
+                state.code2Verified = expectedList.includes(typed);
+
                 code2Status.textContent = state.code2Verified ? "Code accepted." : "Awaiting code.";
-                pushLine(state.code2Verified ? "[UI] Code2 accepted." : "[UI] Code2 rejected.", state.code2Verified ? "line ok" : "line warn");
+                pushLine(
+                    state.code2Verified ? "[UI] Code2 accepted." : "[UI] Code2 rejected.",
+                    state.code2Verified ? "line ok" : "line warn"
+                );
+
                 updateTargetUI();
                 break;
             }
+
 
             case "deploy":
                 if(btnDeploy.disabled){
@@ -1402,7 +1419,7 @@
 
     confirmArm.addEventListener("click", () => {
         const v = phrase.value.trim();
-        if(v !== "SIMULATE ONLY"){
+        if(v !== "CONFIRMED ARMED"){
             modalMsg.textContent = "Phrase mismatch. Action rejected.";
             beep({freq: 180, dur: 0.09, type:"square", vol:0.06});
             return;
