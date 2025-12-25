@@ -1,0 +1,1515 @@
+<!-- Replace your current index.html with this full file.
+     Fictional UI + fictional targeting flow (NO real targets, no real procedures).
+     Fixes:
+       - Target panel updates immediately after arming/disarming (updateTargetUI()).
+       - Reset clears targeting state + UI.
+       - Terminal commands added: targets, target <id>, code2 <phrase>, deploy, disarm.
+     Visuals:
+       - Radar constantly scanning (no dots/blips).
+       - Sonar waterfall runs when VISUALS is open.
+     Audio:
+       - Keyboard clicks + sonar ping. Toggle via: audio on/off
+-->
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>SUBPAC // CONTROL CONSOLE </title>
+    <style>
+        :root{
+            --bg: #05080a;
+            --panel: rgba(10, 16, 18, 0.92);
+            --panel2: rgba(8, 12, 14, 0.75);
+            --grid: rgba(80, 170, 150, 0.08);
+            --text: #cfe9e2;
+            --muted: rgba(207, 233, 226, 0.62);
+            --accent: #7ef2d0;
+            --warn: #ffd166;
+            --danger: #ff4d4d;
+            --ok: #52ff9a;
+            --line: rgba(126, 242, 208, 0.20);
+            --shadow: 0 12px 40px rgba(0,0,0,0.55);
+            --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+            --sans: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        }
+
+        *{ box-sizing: border-box; }
+        body{
+            margin:0;
+            font-family: var(--sans);
+            color: var(--text);
+            background:
+                    radial-gradient(1200px 800px at 70% 20%, rgba(126,242,208,0.08), transparent 60%),
+                    radial-gradient(900px 700px at 20% 80%, rgba(255,77,77,0.05), transparent 60%),
+                    linear-gradient(180deg, #020405, #05080a 35%, #030506);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        body::before{
+            content:"";
+            position: fixed; inset:0;
+            pointer-events:none;
+            background:
+                    repeating-linear-gradient(
+                            to bottom,
+                            rgba(255,255,255,0.03),
+                            rgba(255,255,255,0.03) 1px,
+                            transparent 1px,
+                            transparent 3px
+                    );
+            opacity: 0.20;
+            mix-blend-mode: overlay;
+        }
+        body::after{
+            content:"";
+            position: fixed; inset:-20%;
+            pointer-events:none;
+            background:
+                    linear-gradient(var(--grid) 1px, transparent 1px),
+                    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+            background-size: 52px 52px;
+            transform: rotate(-8deg);
+            opacity: 0.55;
+        }
+
+        .wrap{
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px 16px 40px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .topbar{
+            display:flex;
+            gap:12px;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            border: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(12, 18, 20, 0.92), rgba(8, 12, 14, 0.82));
+            box-shadow: var(--shadow);
+            border-radius: 14px;
+            backdrop-filter: blur(10px);
+        }
+
+        .brand{
+            display:flex;
+            flex-direction: column;
+            gap: 2px;
+            font-family: var(--mono);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-size: 12px;
+        }
+        .brand strong{
+            font-size: 14px;
+            letter-spacing: 0.12em;
+            color: var(--accent);
+        }
+
+        .statusrow{
+            display:flex;
+            gap:10px;
+            align-items:center;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .pill{
+            display:flex;
+            gap:8px;
+            align-items:center;
+            padding: 8px 10px;
+            border:1px solid var(--line);
+            background: rgba(0,0,0,0.25);
+            border-radius: 999px;
+        }
+        .dot{
+            width:9px; height:9px; border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 14px rgba(126,242,208,0.6);
+        }
+        .dot.warn{ background: var(--warn); box-shadow: 0 0 14px rgba(255,209,102,0.55); }
+        .dot.danger{ background: var(--danger); box-shadow: 0 0 14px rgba(255,77,77,0.55); }
+        .dot.ok{ background: var(--ok); box-shadow: 0 0 14px rgba(82,255,154,0.55); }
+
+        .grid{
+            margin-top: 14px;
+            display:grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 14px;
+        }
+        @media (max-width: 980px){
+            .grid{ grid-template-columns: 1fr; }
+        }
+
+        .card{
+            border: 1px solid var(--line);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            border-radius: 14px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+        .cardhead{
+            padding: 12px 14px;
+            display:flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(126,242,208,0.14);
+            background: linear-gradient(180deg, rgba(8, 12, 14, 0.85), rgba(10, 16, 18, 0.55));
+            font-family: var(--mono);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .cardbody{ padding: 14px; }
+
+        .kbd{
+            font-family: var(--mono);
+            border: 1px solid rgba(126,242,208,0.24);
+            background: rgba(0,0,0,0.35);
+            padding: 2px 6px;
+            border-radius: 6px;
+            color: var(--text);
+        }
+
+        .terminal{
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.5;
+            height: 320px;
+            overflow: auto;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(126,242,208,0.18);
+            background:
+                    radial-gradient(900px 400px at 30% 10%, rgba(126,242,208,0.10), transparent 55%),
+                    rgba(0,0,0,0.42);
+        }
+        .line{ color: rgba(207,233,226,0.85); }
+        .line.dim{ color: rgba(207,233,226,0.55); }
+        .line.warn{ color: var(--warn); }
+        .line.danger{ color: var(--danger); }
+        .line.ok{ color: var(--ok); }
+
+        .prompt{
+            display:flex;
+            gap:10px;
+            margin-top: 10px;
+            align-items:center;
+            font-family: var(--mono);
+        }
+        .prompt input{
+            flex:1;
+            font-family: var(--mono);
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(126,242,208,0.25);
+            background: rgba(0,0,0,0.35);
+            color: var(--text);
+            outline: none;
+        }
+        .prompt input:focus{ border-color: rgba(126,242,208,0.6); box-shadow: 0 0 0 3px rgba(126,242,208,0.12); }
+
+        .btn{
+            font-family: var(--mono);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(126,242,208,0.25);
+            background: rgba(0,0,0,0.25);
+            color: var(--text);
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.08s ease, border-color 0.15s ease, background 0.15s ease;
+        }
+        .btn:hover{ border-color: rgba(126,242,208,0.55); background: rgba(126,242,208,0.08); }
+        .btn:active{ transform: translateY(1px); }
+        .btn.danger{
+            border-color: rgba(255,77,77,0.35);
+            color: rgba(255,214,214,0.95);
+        }
+        .btn.danger:hover{ border-color: rgba(255,77,77,0.75); background: rgba(255,77,77,0.08); }
+
+        .readouts{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .readout{
+            border: 1px solid rgba(126,242,208,0.18);
+            background: var(--panel2);
+            border-radius: 12px;
+            padding: 12px;
+            font-family: var(--mono);
+        }
+        .readout .label{
+            color: var(--muted);
+            font-size: 11px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        .readout .value{
+            margin-top: 6px;
+            font-size: 16px;
+            letter-spacing: 0.06em;
+            color: var(--text);
+        }
+        .value small{ color: var(--muted); font-size: 12px; }
+
+        .controls{
+            display:grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .row{
+            display:flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .switch{
+            display:flex;
+            gap: 10px;
+            align-items:center;
+            padding: 10px 12px;
+            border: 1px solid rgba(126,242,208,0.18);
+            background: rgba(0,0,0,0.25);
+            border-radius: 12px;
+            font-family: var(--mono);
+            width: 100%;
+            justify-content: space-between;
+        }
+        .toggle{
+            width: 48px; height: 26px;
+            border-radius: 999px;
+            border: 1px solid rgba(126,242,208,0.30);
+            background: rgba(0,0,0,0.40);
+            position: relative;
+            cursor:pointer;
+            flex: 0 0 auto;
+        }
+        .toggle::after{
+            content:"";
+            position:absolute;
+            top: 3px; left: 3px;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            background: rgba(207,233,226,0.85);
+            transition: left 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+        }
+        .toggle.on{
+            border-color: rgba(82,255,154,0.45);
+            background: rgba(82,255,154,0.08);
+        }
+        .toggle.on::after{
+            left: 25px;
+            background: rgba(82,255,154,0.95);
+            box-shadow: 0 0 18px rgba(82,255,154,0.45);
+        }
+
+        .notice{
+            margin-top: 10px;
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--muted);
+            border-left: 3px solid rgba(126,242,208,0.35);
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.18);
+            border-radius: 10px;
+        }
+
+        /* Collapsible visuals */
+        .details{
+            border: 1px solid rgba(126,242,208,0.18);
+            background: rgba(0,0,0,0.18);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .details summary{
+            list-style: none;
+            cursor: pointer;
+            user-select: none;
+            display:flex;
+            align-items:center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 12px;
+            font-family: var(--mono);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+            background: linear-gradient(180deg, rgba(8,12,14,0.55), rgba(0,0,0,0.10));
+            border-bottom: 1px solid rgba(126,242,208,0.12);
+        }
+        .details summary::-webkit-details-marker{ display:none; }
+        .chev{
+            width: 10px; height: 10px;
+            border-right: 2px solid rgba(207,233,226,0.55);
+            border-bottom: 2px solid rgba(207,233,226,0.55);
+            transform: rotate(-45deg);
+            transition: transform 0.18s ease;
+            margin-left: 8px;
+        }
+        details[open] .chev{ transform: rotate(45deg); }
+
+        .vizgrid{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 10px 12px 12px;
+        }
+        @media (max-width: 980px){
+            .vizgrid{ grid-template-columns: 1fr; }
+        }
+        .viz{
+            border: 1px solid rgba(126,242,208,0.16);
+            background: rgba(0,0,0,0.25);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        .vizhead{
+            display:flex;
+            justify-content: space-between;
+            align-items:center;
+            padding: 8px 10px;
+            font-family: var(--mono);
+            font-size: 11px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+            border-bottom: 1px solid rgba(126,242,208,0.10);
+            background: rgba(0,0,0,0.18);
+        }
+        canvas{
+            display:block;
+            width: 100%;
+            height: 130px;
+        }
+        .vizmeta{
+            position:absolute;
+            right: 10px;
+            bottom: 8px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: rgba(207,233,226,0.6);
+            pointer-events:none;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.7);
+        }
+
+        .footer{
+            margin-top: 10px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: rgba(207,233,226,0.55);
+            text-align: right;
+        }
+
+        /* Modal */
+        .modalback{
+            position: fixed; inset:0;
+            display:none;
+            place-items:center;
+            z-index: 50;
+            background: rgba(0,0,0,0.65);
+            padding: 18px;
+        }
+        .modal{
+            width: min(720px, 100%);
+            border: 1px solid rgba(255,77,77,0.35);
+            background: rgba(10, 14, 16, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 18px 70px rgba(0,0,0,0.65);
+            overflow:hidden;
+            font-family: var(--mono);
+        }
+        .modalhead{
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(255,77,77,0.25);
+            display:flex;
+            justify-content: space-between;
+            align-items: center;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            font-size: 12px;
+            color: rgba(255,214,214,0.9);
+            background: linear-gradient(180deg, rgba(40,10,10,0.65), rgba(10, 14, 16, 0.95));
+        }
+        .modalbody{ padding: 16px; }
+        .modalbody p{
+            margin: 0 0 10px;
+            color: rgba(255,214,214,0.88);
+            line-height: 1.5;
+            font-size: 13px;
+        }
+        .modalgrid{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        @media (max-width: 720px){ .modalgrid{ grid-template-columns: 1fr; } }
+
+        .codebox{
+            border: 1px solid rgba(255,77,77,0.28);
+            background: rgba(0,0,0,0.35);
+            border-radius: 12px;
+            padding: 12px;
+        }
+        .codebox .hint{ color: rgba(255,214,214,0.75); font-size: 12px; margin-bottom: 8px; }
+        .codebox input{
+            width: 100%;
+            font-family: var(--mono);
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,77,77,0.35);
+            background: rgba(0,0,0,0.45);
+            color: rgba(255,214,214,0.95);
+            outline: none;
+        }
+        .modalactions{
+            display:flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="brand">
+            <strong>SUBPAC CONTROL CONSOLE</strong>
+            <div>MASTER CONTROL</div>
+        </div>
+        <div class="statusrow">
+            <div class="pill"><span class="dot ok" id="dotLink"></span><span id="linkText">LINK: STABLE</span></div>
+            <div class="pill"><span class="dot" id="dotOps"></span><span id="opsText">MODE: SAFE</span></div>
+            <div class="pill"><span class="dot warn" id="dotClock"></span><span id="clockText">00:00:00Z</span></div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <!-- Left: Terminal + logs -->
+        <div class="card">
+            <div class="cardhead">
+                <span>Telemetry Log</span>
+                <span>Keys: <span class="kbd">Enter</span> submit, <span class="kbd">Esc</span> cancel</span>
+            </div>
+            <div class="cardbody">
+                <div class="terminal" id="term" aria-label="terminal" role="log"></div>
+                <div class="prompt">
+                    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="type: help" />
+                    <button class="btn" id="send">send</button>
+                </div>
+                <div class="notice">
+                    521/1-0.
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Readouts + control panel -->
+        <div class="card">
+            <div class="cardhead">
+                <span>System Readouts</span>
+                <span id="buildTag">build: r8.2</span>
+            </div>
+            <div class="cardbody">
+                <div class="readouts">
+                    <div class="readout">
+                        <div class="label">Platform</div>
+                        <div class="value">SSN-ØX <small>(training)</small></div>
+                    </div>
+                    <div class="readout">
+                        <div class="label">Depth</div>
+                        <div class="value" id="depthVal">094 m</div>
+                    </div>
+                    <div class="readout">
+                        <div class="label">Reactor</div>
+                        <div class="value" id="rxVal">ONLINE</div>
+                    </div>
+                    <div class="readout">
+                        <div class="label">Comms</div>
+                        <div class="value" id="commsVal">SILENT</div>
+                    </div>
+                </div>
+
+                <!-- Collapsible visuals (default closed) -->
+                <details class="details" id="visualsDetails">
+                    <summary>
+                        <span>VISUALS</span>
+                        <span style="display:flex;align-items:center;gap:10px;">
+              <span style="color:rgba(207,233,226,0.45);font-size:11px;letter-spacing:.08em;text-transform:none;">radar + sonar</span>
+              <span class="chev" aria-hidden="true"></span>
+            </span>
+                    </summary>
+
+                    <div class="vizgrid">
+                        <div class="viz">
+                            <div class="vizhead">
+                                <span>Radar </span>
+                                <span>range: 48 nm</span>
+                            </div>
+                            <canvas id="radar"></canvas>
+                            <div class="vizmeta" id="radarMeta">scan: idle</div>
+                        </div>
+
+                        <div class="viz">
+                            <div class="vizhead">
+                                <span>Sonar Waterfall </span>
+                                <span>band: wide</span>
+                            </div>
+                            <canvas id="sonar"></canvas>
+                            <div class="vizmeta" id="sonarMeta">gain: nominal</div>
+                        </div>
+                    </div>
+                </details>
+
+                <div class="controls">
+                    <div class="switch">
+                        <div>
+                            <div style="letter-spacing:.12em;text-transform:uppercase;font-size:11px;color:var(--muted);">External Link</div>
+                            <div style="margin-top:6px;font-size:13px;">Secure uplink handshake </div>
+                        </div>
+                        <div class="toggle" id="togLink" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+
+                    <div class="switch">
+                        <div>
+                            <div style="letter-spacing:.12em;text-transform:uppercase;font-size:11px;color:var(--muted);">Comm Discipline</div>
+                            <div style="margin-top:6px;font-size:13px;">Silent running protocol</div>
+                        </div>
+                        <div class="toggle on" id="togSilent" role="switch" aria-checked="true" tabindex="0"></div>
+                    </div>
+
+                    <div class="switch">
+                        <div>
+                            <div style="letter-spacing:.12em;text-transform:uppercase;font-size:11px;color:var(--muted);">Training Mode</div>
+                            <div style="margin-top:6px;font-size:13px;">Scenario safety interlocks</div>
+                        </div>
+                        <div class="toggle on" id="togTraining" role="switch" aria-checked="true" tabindex="0"></div>
+                    </div>
+
+                    <div class="row">
+                        <button class="btn" id="btnDiag">run diagnostics</button>
+                        <button class="btn" id="btnPing">ping link</button>
+                        <button class="btn danger" id="btnArm">request arm sequence</button>
+                    </div>
+
+                    <div class="notice" id="armStatus">
+                        Status: SAFE. Interlocks engaged. (Use <span class="kbd">request</span> flow for cinematic UI only.)
+                    </div>
+
+                    <!-- Targeting + Confirmation  -->
+                    <div class="controls" id="targetPanel" style="display:none; margin-top:10px;">
+                        <div class="notice" style="border-left-color: rgba(255,209,102,0.55);">
+                            Targeting list ready. Targets are real.
+                        </div>
+
+                        <div class="switch" style="align-items:flex-start;">
+                            <div style="flex:1;">
+                                <div style="letter-spacing:.12em;text-transform:uppercase;font-size:11px;color:var(--muted);">Target Select </div>
+                                <div style="margin-top:8px;">
+                                    <select id="targetSelect" style="
+                    width:100%;
+                    font-family: var(--mono);
+                    padding: 10px 12px;
+                    border-radius: 10px;
+                    border: 1px solid rgba(126,242,208,0.25);
+                    background: rgba(0,0,0,0.35);
+                    color: var(--text);
+                    outline: none;
+                  "></select>
+                                </div>
+                                <div style="margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--muted);" id="targetReadout">
+                                    No target selected.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="switch" style="align-items:flex-start;">
+                            <div style="flex:1;">
+                                <div style="letter-spacing:.12em;text-transform:uppercase;font-size:11px;color:var(--muted);">Second Confirmation Code </div>
+                                <div style="margin-top:8px;">
+                                    <input id="code2" placeholder="input code" style="
+                    width:100%;
+                    font-family: var(--mono);
+                    padding: 10px 12px;
+                    border-radius: 10px;
+                    border: 1px solid rgba(126,242,208,0.25);
+                    background: rgba(0,0,0,0.35);
+                    color: var(--text);
+                    outline: none;
+                  "/>
+                                </div>
+                                <div style="margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--muted);" id="code2Status">
+                                    Awaiting code.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <button class="btn danger" id="btnDeploy" disabled>deploy </button>
+                            <button class="btn" id="btnDisarm2">disarm</button>
+                        </div>
+
+                        <div class="notice" id="deployStatus" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="footer"> </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modalback" id="modalBack" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modalhead">
+            <span id="modalTitle">Danger Action Confirmation</span>
+            <button class="btn" id="closeModal">close</button>
+        </div>
+        <div class="modalbody">
+            <p>
+                Confirmation panel flow.
+                Enter the phrase below to continue.
+            </p>
+
+            <div class="modalgrid">
+                <div class="codebox">
+                    <div class="hint">Type exactly:</div>
+                    <div class="hint" style="color: var(--danger);">SIMULATE ONLY</div>
+                </div>
+                <div class="codebox">
+                    <div class="hint">Training phrase</div>
+                    <input id="phrase" placeholder="SIMULATE ONLY" />
+                </div>
+            </div>
+
+            <div class="modalactions">
+                <button class="btn" id="cancelArm">cancel</button>
+                <button class="btn danger" id="confirmArm">confirm</button>
+            </div>
+
+            <p id="modalMsg" style="margin-top:12px;color:rgba(255,214,214,0.72);"></p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ---------- elements ----------
+    const term = document.getElementById("term");
+    const cmd = document.getElementById("cmd");
+    const send = document.getElementById("send");
+
+    const dotLink = document.getElementById("dotLink");
+    const linkText = document.getElementById("linkText");
+    const dotOps = document.getElementById("dotOps");
+    const opsText = document.getElementById("opsText");
+    const clockText = document.getElementById("clockText");
+
+    const depthVal = document.getElementById("depthVal");
+    const rxVal = document.getElementById("rxVal");
+    const commsVal = document.getElementById("commsVal");
+    const armStatus = document.getElementById("armStatus");
+
+    const togLink = document.getElementById("togLink");
+    const togSilent = document.getElementById("togSilent");
+    const togTraining = document.getElementById("togTraining");
+
+    const btnDiag = document.getElementById("btnDiag");
+    const btnPing = document.getElementById("btnPing");
+    const btnArm  = document.getElementById("btnArm");
+
+    const modalBack = document.getElementById("modalBack");
+    const closeModal = document.getElementById("closeModal");
+    const cancelArm = document.getElementById("cancelArm");
+    const confirmArm = document.getElementById("confirmArm");
+    const phrase = document.getElementById("phrase");
+    const modalMsg = document.getElementById("modalMsg");
+
+    const visualsDetails = document.getElementById("visualsDetails");
+    const radarCanvas = document.getElementById("radar");
+    const sonarCanvas = document.getElementById("sonar");
+    const radarMeta = document.getElementById("radarMeta");
+    const sonarMeta = document.getElementById("sonarMeta");
+
+    // Targeting UI
+    const targetPanel = document.getElementById("targetPanel");
+    const targetSelect = document.getElementById("targetSelect");
+    const targetReadout = document.getElementById("targetReadout");
+    const code2 = document.getElementById("code2");
+    const code2Status = document.getElementById("code2Status");
+    const btnDeploy = document.getElementById("btnDeploy");
+    const btnDisarm2 = document.getElementById("btnDisarm2");
+    const deployStatus = document.getElementById("deployStatus");
+
+    // ---------- state ----------
+    const state = {
+        link: false,
+        silent: true,
+        training: true,
+        armed: false,
+
+        audio: true,
+
+        depth: 500,
+        depthTarget: 94,
+
+        reactor: "ONLINE",
+        lastPingOk: true,
+
+        selectedTargetId: null,
+        code2Verified: false,
+
+        // radar
+        radarAngle: 0,
+
+        // sonar
+        sonarGain: 1.0,
+        sonarPulse: 0,
+        sonarNoise: 0.12
+    };
+
+    // Fictional targets only (NOT real places)
+    const TARGETS = [
+        { id: "K-19", name: "SECTOR K-19", grid: "FX-44.7N / 12.3E", note: "Open water zone" },
+        { id: "R-07", name: "RANGE R-07", grid: "FX-08.1S / 61.9W", note: "Telemetry buoy corridor" },
+        { id: "V-33", name: "VECTOR V-33", grid: "FX-73.0N / 140.2E", note: "Arctic calibration line" },
+        { id: "S-12", name: "STATION S-12", grid: "FX-21.4N / 98.8E", note: "Instrumented target raft" },
+    ];
+
+    // ---------- audio ----------
+    let audioCtx = null;
+
+    function ensureAudio(){
+        if(!state.audio) return null;
+        if(!audioCtx){
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if(audioCtx.state === "suspended"){
+            audioCtx.resume().catch(()=>{});
+        }
+        return audioCtx;
+    }
+
+    function beep({freq=880, dur=0.04, type="square", vol=0.06} = {}){
+        const ctx = ensureAudio();
+        if(!ctx) return;
+
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        o.type = type;
+        o.frequency.value = freq;
+
+        const t = ctx.currentTime;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(vol, t + 0.003);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+        o.connect(g);
+        g.connect(ctx.destination);
+
+        o.start(t);
+        o.stop(t + dur + 0.01);
+    }
+
+    function clickKey(kind="key"){
+        const base = 520 + Math.random() * 120;
+        if(kind === "enter"){
+            beep({freq: 880, dur: 0.05, type:"triangle", vol:0.07});
+            beep({freq: 660, dur: 0.06, type:"sine", vol:0.05});
+            return;
+        }
+        if(kind === "backspace"){
+            beep({freq: 220 + Math.random()*40, dur: 0.035, type:"square", vol:0.05});
+            return;
+        }
+        beep({freq: base, dur: 0.02 + Math.random()*0.01, type:"square", vol:0.045});
+    }
+
+    function sonarPingSound(){
+        const ctx = ensureAudio();
+        if(!ctx) return;
+
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        const t = ctx.currentTime;
+
+        o.type = "sine";
+        o.frequency.setValueAtTime(1200, t);
+        o.frequency.exponentialRampToValueAtTime(420, t + 0.12);
+
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.08, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+
+        o.connect(g);
+        g.connect(ctx.destination);
+
+        o.start(t);
+        o.stop(t + 0.18);
+    }
+
+    // ---------- helpers ----------
+    function nowZulu(){
+        const d = new Date();
+        const hh = String(d.getUTCHours()).padStart(2,'0');
+        const mm = String(d.getUTCMinutes()).padStart(2,'0');
+        const ss = String(d.getUTCSeconds()).padStart(2,'0');
+        return `${hh}:${mm}:${ss}Z`;
+    }
+
+    function pushLine(text, cls="line"){
+        const div = document.createElement("div");
+        div.className = cls;
+        div.textContent = text;
+        term.appendChild(div);
+        term.scrollTop = term.scrollHeight;
+    }
+
+    function setToggle(el, on){
+        el.classList.toggle("on", !!on);
+        el.setAttribute("aria-checked", String(!!on));
+    }
+
+    function updateUI(){
+        if(state.link){
+            dotLink.className = "dot ok";
+            linkText.textContent = "LINK: ACTIVE";
+        } else {
+            dotLink.className = "dot warn";
+            linkText.textContent = "LINK: STANDBY";
+        }
+
+        if(state.armed){
+            dotOps.className = "dot danger";
+            opsText.textContent = "MODE: ARMED";
+        } else {
+            dotOps.className = "dot";
+            opsText.textContent = state.training ? "MODE: SAFE" : "MODE: MANUAL";
+        }
+
+        depthVal.textContent = String(state.depth).padStart(3,"0") + " m";
+        rxVal.textContent = state.reactor;
+        commsVal.textContent = state.silent ? "SILENT" : "ACTIVE";
+
+        if(state.armed){
+            armStatus.style.borderLeftColor = "rgba(255,77,77,0.55)";
+            armStatus.textContent = "Status: ARMED.";
+        } else {
+            armStatus.style.borderLeftColor = "rgba(126,242,208,0.35)";
+            armStatus.innerHTML = 'Status: SAFE. Interlocks engaged. (Use <span class="kbd">request</span> flow for cinematic UI only.)';
+        }
+
+        setToggle(togLink, state.link);
+        setToggle(togSilent, state.silent);
+        setToggle(togTraining, state.training);
+    }
+
+    function banner(){
+        pushLine("SUBPAC // CONTROL CONSOLE", "line ok");
+        pushLine("NOTICE: This interface is for authorized personal only.", "line dim");
+        pushLine("Type 'help' for commands.", "line dim");
+        pushLine("—", "line dim");
+    }
+
+    // ---------- targeting ----------
+    function initTargets(){
+        targetSelect.innerHTML = `<option value="">-- select --</option>` +
+            TARGETS.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
+
+        targetSelect.addEventListener("change", () => {
+            state.selectedTargetId = targetSelect.value || null;
+
+            // reset confirmation state
+            state.code2Verified = false;
+            code2.value = "";
+            code2Status.textContent = "Awaiting code.";
+            deployStatus.style.display = "none";
+
+            // NEW: terminal feedback
+            if (!state.selectedTargetId) {
+                pushLine("[TARGET] Selection cleared.", "line dim");
+            } else {
+                const t = TARGETS.find(x => x.id === state.selectedTargetId);
+                if (t) {
+                    pushLine(`[TARGET] Selected: ${t.name} (${t.id})`, "line ok");
+                    pushLine(`[TARGET] Coords: ${t.grid} // ${t.note}`, "line dim");
+                    beep({ freq: 760, dur: 0.03, type: "triangle", vol: 0.05 });
+                }
+            }
+
+            updateTargetUI();
+        });
+
+        code2.addEventListener("input", () => {
+            const expected = "TRAINING CONFIRMED";
+            state.code2Verified = (code2.value.trim().toUpperCase() === expected);
+            code2Status.textContent = state.code2Verified ? "Code accepted." : "Awaiting code.";
+            if (state.code2Verified) {
+                pushLine("[AUTH] Second confirmation accepted.", "line ok");
+            }
+            updateTargetUI();
+        });
+
+        btnDeploy.addEventListener("click", () => {
+            const t = TARGETS.find(x => x.id === state.selectedTargetId);
+            if(!t) return;
+
+            pushLine(` Deployment initiated to ${t.name} (${t.grid}).`, "line warn");
+            pushLine(` Telemetry link: ${state.link ? "ACTIVE" : "STANDBY"} // Comms: ${state.silent ? "SILENT" : "ACTIVE"}`, "line dim");
+
+            deployStatus.style.display = "block";
+            deployStatus.style.borderLeftColor = "rgba(255,209,102,0.55)";
+            deployStatus.textContent = `DEPLOYED: ${t.name} // ${t.grid} // ${t.note}`;
+            beep({freq: 520, dur: 0.06, type:"triangle", vol:0.06});
+        });
+
+        btnDisarm2.addEventListener("click", () => {
+            state.armed = false;
+            state.selectedTargetId = null;
+            state.code2Verified = false;
+            deployStatus.style.display = "none";
+            code2.value = "";
+            code2Status.textContent = "Awaiting code.";
+            targetSelect.value = "";
+            pushLine("Disarmed. Targeting cleared.", "line ok");
+            updateUI();
+            updateTargetUI();
+        });
+    }
+
+    function updateTargetUI(){
+        targetPanel.style.display = state.armed ? "grid" : "none";
+
+        const t = TARGETS.find(x => x.id === state.selectedTargetId);
+        targetReadout.textContent = t
+            ? `${t.name} // ${t.grid} // ${t.note}`
+            : "No target selected.";
+
+        btnDeploy.disabled = !(state.armed && state.selectedTargetId && state.code2Verified);
+    }
+
+    // ---------- canvas sizing ----------
+    function fitCanvas(c){
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const rect = c.getBoundingClientRect();
+        c.width = Math.floor(rect.width * dpr);
+        c.height = Math.floor(rect.height * dpr);
+        const ctx = c.getContext("2d");
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        return ctx;
+    }
+
+    let radarCtx, sonarCtx;
+
+    function resizeAll(){
+        radarCtx = fitCanvas(radarCanvas);
+        sonarCtx = fitCanvas(sonarCanvas);
+    }
+
+    window.addEventListener("resize", () => {
+        if(visualsDetails.open){
+            resizeAll();
+        }
+    });
+
+    // ---------- radar ----------
+    function radarStep(dt){
+        const speed = 1.6; // always scan
+        state.radarAngle = (state.radarAngle + dt * speed) % (Math.PI*2);
+    }
+
+    function drawRadar(){
+        const w = radarCanvas.getBoundingClientRect().width;
+        const h = radarCanvas.getBoundingClientRect().height;
+        const cx = w/2;
+        const cy = h/2;
+        const R = Math.min(w,h)*0.46;
+
+        radarCtx.clearRect(0,0,w,h);
+        radarCtx.fillStyle = "rgba(0,0,0,0.30)";
+        radarCtx.fillRect(0,0,w,h);
+
+        const grd = radarCtx.createRadialGradient(cx,cy, 10, cx,cy, R*1.2);
+        grd.addColorStop(0, "rgba(126,242,208,0.08)");
+        grd.addColorStop(1, "rgba(0,0,0,0.45)");
+        radarCtx.fillStyle = grd;
+        radarCtx.fillRect(0,0,w,h);
+
+        radarCtx.strokeStyle = "rgba(126,242,208,0.18)";
+        radarCtx.lineWidth = 1;
+        for(let i=1;i<=4;i++){
+            radarCtx.beginPath();
+            radarCtx.arc(cx,cy, R*(i/4), 0, Math.PI*2);
+            radarCtx.stroke();
+        }
+
+        radarCtx.strokeStyle = "rgba(126,242,208,0.12)";
+        radarCtx.beginPath();
+        radarCtx.moveTo(cx-R, cy);
+        radarCtx.lineTo(cx+R, cy);
+        radarCtx.moveTo(cx, cy-R);
+        radarCtx.lineTo(cx, cy+R);
+        radarCtx.stroke();
+
+        const a = state.radarAngle;
+        const wedge = Math.PI / 10;
+        const sweepGrad = radarCtx.createRadialGradient(cx,cy, 0, cx,cy, R);
+        sweepGrad.addColorStop(0, "rgba(126,242,208,0.22)");
+        sweepGrad.addColorStop(1, "rgba(126,242,208,0.00)");
+
+        radarCtx.fillStyle = sweepGrad;
+        radarCtx.beginPath();
+        radarCtx.moveTo(cx,cy);
+        radarCtx.arc(cx,cy,R, a-wedge, a+wedge);
+        radarCtx.closePath();
+        radarCtx.fill();
+
+        radarCtx.strokeStyle = "rgba(126,242,208,0.55)";
+        radarCtx.lineWidth = 2;
+        radarCtx.beginPath();
+        radarCtx.moveTo(cx,cy);
+        radarCtx.lineTo(cx + Math.cos(a)*R, cy + Math.sin(a)*R);
+        radarCtx.stroke();
+
+        radarMeta.textContent = state.link ? "scan: active" : "scan: passive";
+    }
+
+    // ---------- sonar waterfall ----------
+    function sonarStep(){
+        const w = sonarCanvas.getBoundingClientRect().width;
+        const h = sonarCanvas.getBoundingClientRect().height;
+
+        const img = sonarCtx.getImageData(1, 0, w-1, h);
+        sonarCtx.putImageData(img, 0, 0);
+
+        const x = w-1;
+        for(let y=0;y<h;y++){
+            const band = y / h;
+            const hump1 = Math.exp(-Math.pow((band-0.25)/0.08, 2));
+            const hump2 = Math.exp(-Math.pow((band-0.55)/0.10, 2));
+            const hump3 = Math.exp(-Math.pow((band-0.82)/0.05, 2));
+
+            let v = 0.08 + state.sonarNoise * Math.random();
+            v += 0.15*hump1 + 0.10*hump2 + 0.08*hump3;
+
+            if(state.sonarPulse > 0){
+                const pulseBand = (Math.sin((band*10 + state.sonarPulse)*Math.PI*2) * 0.5 + 0.5);
+                v += 0.16 * pulseBand;
+            }
+
+            v *= state.sonarGain;
+            v = Math.max(0, Math.min(1, v));
+
+            const a = 0.12 + v*0.55;
+            sonarCtx.fillStyle = `rgba(82,255,154,${a})`;
+            sonarCtx.fillRect(x, y, 1, 1);
+
+            if(v > 0.55){
+                sonarCtx.fillStyle = `rgba(126,242,208,${(v-0.55)*0.35})`;
+                sonarCtx.fillRect(x, y, 1, 1);
+            }
+        }
+
+        if(state.sonarPulse > 0){
+            state.sonarPulse *= 0.985;
+            if(state.sonarPulse < 0.02) state.sonarPulse = 0;
+        }
+
+        sonarMeta.textContent = `gain: ${state.sonarGain.toFixed(1)}`;
+    }
+
+    function triggerSonarPing(){
+        state.sonarPulse = 1.0;
+        sonarPingSound();
+        pushLine("[SONAR] Active ping .", "line ok");
+    }
+
+    // ---------- simulated dynamics ----------
+    setInterval(() => {
+        clockText.textContent = nowZulu();
+
+        const delta = state.depthTarget - state.depth;
+        if(Math.abs(delta) > 0.2){
+            state.depth += Math.sign(delta) * 1;
+        } else {
+            if(Math.random() < 0.12) state.depthTarget = Math.max(10, Math.min(280, state.depthTarget + (Math.random() < 0.5 ? -5 : 5)));
+        }
+        state.depth = Math.max(0, Math.min(999, state.depth));
+
+        updateUI();
+    }, 1000);
+
+    // ---------- command handling ----------
+    function handleCommand(raw){
+        const input = raw.trim();
+        if(!input) return;
+
+        pushLine("> " + input, "line");
+        beep({freq: 640, dur: 0.02, type:"square", vol:0.04});
+
+        const [cmd0, ...rest] = input.split(/\s+/);
+        const arg = rest.join(" ").trim().toLowerCase();
+
+        switch(cmd0.toLowerCase()){
+            case "help":
+                pushLine("Commands:", "line dim");
+                pushLine("  status                 show system status", "line dim");
+                pushLine("  link on|off             toggle fictional uplink", "line dim");
+                pushLine("  silent on|off           toggle silent running", "line dim");
+                pushLine("  training on|off         toggle safety interlocks", "line dim");
+                pushLine("  audio on|off            toggle sounds", "line dim");
+                pushLine("  diag                   run diagnostics", "line dim");
+                pushLine("  ping                   ping uplink", "line dim");
+                pushLine("  sonar                  trigger sonar ping ", "line dim");
+                pushLine("  gain up|down            adjust sonar gain", "line dim");
+                pushLine("  visuals open|close      expand/collapse visuals", "line dim");
+                pushLine("  request                open cinematic arm confirmation", "line dim");
+                pushLine("  targets                list fictional targets", "line dim");
+                pushLine("  target <id>             select target (e.g., target K-19)", "line dim");
+                pushLine("  code2 <phrase>          set/verify second confirmation phrase", "line dim");
+                pushLine("  deploy                 deploy if ready", "line dim");
+                pushLine("  disarm                 disarm + clear targeting", "line dim");
+                pushLine("  reset                  reset state", "line dim");
+                break;
+
+            case "status":
+                pushLine(`PLATFORM: SSN-ØX (training)`, "line");
+                pushLine(`DEPTH: ${String(state.depth).padStart(3,"0")} m`, "line");
+                pushLine(`REACTOR: ${state.reactor}`, "line");
+                pushLine(`COMMS: ${state.silent ? "SILENT" : "ACTIVE"}`, "line");
+                pushLine(`LINK: ${state.link ? "ACTIVE" : "STANDBY"}`, "line");
+                pushLine(`AUDIO: ${state.audio ? "ON" : "OFF"}`, "line");
+                pushLine(`VISUALS: ${visualsDetails.open ? "OPEN" : "CLOSED"}`, "line");
+                pushLine(`MODE: ${state.armed ? "ARMED" : (state.training ? "SAFE" : "MANUAL")}`, state.armed ? "line danger" : "line");
+                if(state.armed){
+                    const t = TARGETS.find(x => x.id === state.selectedTargetId);
+                    pushLine(`TARGET: ${t ? `${t.id} ${t.name}` : "NONE"}`, "line dim");
+                    pushLine(`CODE2: ${state.code2Verified ? "VERIFIED" : "PENDING"}`, "line dim");
+                }
+                break;
+
+            case "link":
+                if(arg === "on"){ state.link = true; pushLine("Uplink: ENABLED (fictional).", "line ok"); beep({freq: 900, dur: 0.04, type:"triangle", vol:0.06}); }
+                else if(arg === "off"){ state.link = false; pushLine("Uplink: DISABLED.", "line warn"); beep({freq: 260, dur: 0.04, type:"square", vol:0.05}); }
+                else pushLine("Usage: link on|off", "line dim");
+                break;
+
+            case "silent":
+                if(arg === "on"){ state.silent = true; pushLine("Comm discipline: SILENT.", "line ok"); }
+                else if(arg === "off"){ state.silent = false; pushLine("Comm discipline: ACTIVE.", "line warn"); }
+                else pushLine("Usage: silent on|off", "line dim");
+                break;
+
+            case "training":
+                if(arg === "on"){ state.training = true; pushLine("Interlocks: ENABLED.", "line ok"); }
+                else if(arg === "off"){
+                    state.training = false;
+                    pushLine("Interlocks: DISABLED.", "line warn");
+                    pushLine( "line dim");
+                } else pushLine("Usage: training on|off", "line dim");
+                break;
+
+            case "audio":
+                if(arg === "on"){ state.audio = true; pushLine("Audio: ENABLED.", "line ok"); }
+                else if(arg === "off"){ state.audio = false; pushLine("Audio: DISABLED.", "line warn"); }
+                else pushLine("Usage: audio on|off", "line dim");
+                break;
+
+            case "diag":
+                runDiagnostics();
+                break;
+
+            case "ping":
+                pingLink();
+                break;
+
+            case "sonar":
+                triggerSonarPing();
+                break;
+
+            case "gain":
+                if(arg === "up"){
+                    state.sonarGain = Math.min(2.0, state.sonarGain + 0.1);
+                    pushLine(`[SONAR] Gain set to ${state.sonarGain.toFixed(1)}.`, "line dim");
+                } else if(arg === "down"){
+                    state.sonarGain = Math.max(0.5, state.sonarGain - 0.1);
+                    pushLine(`[SONAR] Gain set to ${state.sonarGain.toFixed(1)}.`, "line dim");
+                } else {
+                    pushLine("Usage: gain up|down", "line dim");
+                }
+                break;
+
+            case "visuals":
+                if(arg === "open"){
+                    visualsDetails.open = true;
+                    pushLine("[UI] Visuals expanded.", "line dim");
+                    setTimeout(() => { resizeAll(); }, 0);
+                } else if(arg === "close"){
+                    visualsDetails.open = false;
+                    pushLine("[UI] Visuals collapsed.", "line dim");
+                } else {
+                    pushLine("Usage: visuals open|close", "line dim");
+                }
+                break;
+
+            case "request":
+                openArmModal();
+                break;
+
+            case "targets":
+                pushLine("TARGETS: ", "line dim");
+                TARGETS.forEach(t => {
+                    pushLine(`  ${t.id}  ${t.name}  // ${t.grid}  // ${t.note}`, "line");
+                });
+                break;
+
+            case "target": {
+                const id = rest.join(" ").trim().toUpperCase();
+                const t = TARGETS.find(x => x.id === id);
+                if(!t){
+                    pushLine("Unknown target id. Use: targets", "line warn");
+                    break;
+                }
+                state.selectedTargetId = t.id;
+                targetSelect.value = t.id;
+                state.code2Verified = false;
+                code2.value = "";
+                code2Status.textContent = "Awaiting code.";
+                deployStatus.style.display = "none";
+                pushLine(`[UI] Target selected: ${t.name} (${t.grid}).`, "line ok");
+                updateTargetUI();
+                break;
+            }
+
+            case "code2": {
+                const p = rest.join(" ").trim();
+                if(!p){
+                    pushLine("Usage: code2 <phrase>", "line dim");
+                    break;
+                }
+                code2.value = p;
+                const expected = "TRAINING CONFIRMED";
+                state.code2Verified = (p.trim().toUpperCase() === expected);
+                code2Status.textContent = state.code2Verified ? "Code accepted." : "Awaiting code.";
+                pushLine(state.code2Verified ? "[UI] Code2 accepted." : "[UI] Code2 rejected.", state.code2Verified ? "line ok" : "line warn");
+                updateTargetUI();
+                break;
+            }
+
+            case "deploy":
+                if(btnDeploy.disabled){
+                    pushLine("Deploy unavailable. Requirements: armed + target selected + valid code2.", "line warn");
+                    break;
+                }
+                btnDeploy.click();
+                break;
+
+            case "disarm":
+                btnDisarm2.click();
+                break;
+
+            case "reset":
+                Object.assign(state, {
+                    link:false, silent:true, training:true, armed:false,
+                    audio:true,
+                    depth:94, depthTarget:94, reactor:"ONLINE", lastPingOk:true,
+                    selectedTargetId:null, code2Verified:false,
+                    radarAngle:0, sonarGain:1.0, sonarPulse:0, sonarNoise:0.12
+                });
+                deployStatus.style.display = "none";
+                code2.value = "";
+                code2Status.textContent = "Awaiting code.";
+                targetSelect.value = "";
+                pushLine("Simulation reset complete.", "line ok");
+                updateUI();
+                updateTargetUI();
+                break;
+
+            default:
+                pushLine("Unknown command. Type 'help'.", "line warn");
+        }
+
+        updateUI();
+    }
+
+    function runDiagnostics(){
+        pushLine("[DIAG] Starting diagnostic sweep…", "line dim");
+        beep({freq: 740, dur: 0.03, type:"square", vol:0.04});
+        const steps = [
+            () => pushLine("[DIAG] Reactor telemetry: OK", "line ok"),
+            () => pushLine("[DIAG] Navigation inertials: OK", "line ok"),
+            () => pushLine("[DIAG] Hull integrity: OK", "line ok"),
+            () => pushLine(`[DIAG] Uplink handshake: ${state.link ? "READY" : "STANDBY"}`, state.link ? "line ok" : "line warn"),
+            () => pushLine(`[DIAG] Safety interlocks: ${state.training ? "ENGAGED" : "DISENGAGED"}`, state.training ? "line ok" : "line warn"),
+            () => pushLine("[DIAG] Completed.", "line dim"),
+        ];
+        steps.forEach((fn, i) => setTimeout(fn, 320 + i * 330));
+    }
+
+    function pingLink(){
+        if(!state.link){
+            pushLine("[PING] Link is STANDBY. Enable link first: 'link on'.", "line warn");
+            state.lastPingOk = false;
+            beep({freq: 280, dur: 0.05, type:"square", vol:0.05});
+            return;
+        }
+        const ok = Math.random() > 0.12;
+        state.lastPingOk = ok;
+        if(ok){
+            pushLine("[PING] Round-trip: 42 ms. Integrity: OK.", "line ok");
+            beep({freq: 980, dur: 0.02, type:"triangle", vol:0.05});
+        } else {
+            pushLine("[PING] Packet loss detected. Integrity: DEGRADED.", "line warn");
+            beep({freq: 320, dur: 0.07, type:"square", vol:0.05});
+        }
+    }
+
+    // ---------- cinematic "arm" flow (purely fictional) ----------
+    function openArmModal(){
+        modalMsg.textContent = "";
+        phrase.value = "";
+        modalBack.style.display = "grid";
+        modalBack.setAttribute("aria-hidden","false");
+        phrase.focus();
+        beep({freq: 220, dur: 0.06, type:"square", vol:0.06});
+    }
+
+    function closeArmModal(){
+        modalBack.style.display = "none";
+        modalBack.setAttribute("aria-hidden","true");
+        cmd.focus();
+    }
+
+    confirmArm.addEventListener("click", () => {
+        const v = phrase.value.trim();
+        if(v !== "SIMULATE ONLY"){
+            modalMsg.textContent = "Phrase mismatch. Action rejected.";
+            beep({freq: 180, dur: 0.09, type:"square", vol:0.06});
+            return;
+        }
+
+        state.armed = !state.armed;
+
+        pushLine(state.armed
+                ? "State transitioned: ARMED."
+                : "State transitioned: SAFE.",
+            state.armed ? "line danger" : "line ok"
+        );
+        //pushLine("Reminder: This is storytelling UI only; no real-world procedures are represented.", "line dim");
+
+        beep({freq: state.armed ? 160 : 760, dur: 0.08, type:"triangle", vol:0.07});
+        updateUI();
+        updateTargetUI(); // FIX: update panel immediately
+        closeArmModal();
+    });
+
+    cancelArm.addEventListener("click", () => { beep({freq: 260, dur: 0.04, type:"square", vol:0.05}); closeArmModal(); });
+    closeModal.addEventListener("click", () => { beep({freq: 260, dur: 0.04, type:"square", vol:0.05}); closeArmModal(); });
+
+    // ---------- buttons ----------
+    btnDiag.addEventListener("click", runDiagnostics);
+    btnPing.addEventListener("click", pingLink);
+    btnArm.addEventListener("click", openArmModal);
+
+    // ---------- toggles ----------
+    function bindToggle(el, key){
+        el.addEventListener("click", () => {
+            state[key] = !state[key];
+            updateUI();
+            pushLine(`[SYS] ${key.toUpperCase()} set to ${state[key] ? "ON" : "OFF"}.`, "line dim");
+            clickKey("key");
+        });
+        el.addEventListener("keydown", (e) => {
+            if(e.key === "Enter" || e.key === " "){
+                e.preventDefault();
+                el.click();
+            }
+        });
+    }
+    bindToggle(togLink, "link");
+    bindToggle(togSilent, "silent");
+    bindToggle(togTraining, "training");
+
+    // ---------- prompt wiring ----------
+    send.addEventListener("click", () => {
+        handleCommand(cmd.value);
+        cmd.value = "";
+        cmd.focus();
+        clickKey("enter");
+    });
+
+    cmd.addEventListener("keydown", (e) => {
+        if(e.key === "Enter") clickKey("enter");
+        else if(e.key === "Backspace") clickKey("backspace");
+        else if(e.key.length === 1) clickKey("key");
+
+        if(e.key === "Enter"){
+            handleCommand(cmd.value);
+            cmd.value = "";
+        } else if(e.key === "Escape"){
+            cmd.value = "";
+        }
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if(e.key === "Escape" && modalBack.style.display === "grid"){
+            closeArmModal();
+        }
+    });
+
+    visualsDetails.addEventListener("toggle", () => {
+        if(visualsDetails.open){
+            setTimeout(() => { resizeAll(); }, 0);
+        }
+    });
+
+    // ---------- render loop (only draw when visuals open) ----------
+    let last = performance.now();
+
+    function frame(t){
+        const dt = Math.min(0.05, (t - last) / 1000);
+        last = t;
+
+        radarStep(dt);
+
+        if(visualsDetails.open){
+            if(!radarCtx || !sonarCtx) resizeAll();
+            drawRadar();
+            sonarStep();
+        }
+
+        requestAnimationFrame(frame);
+    }
+
+    // ---------- boot ----------
+    banner();
+    updateUI();
+    initTargets();
+    updateTargetUI();
+    requestAnimationFrame(frame);
+
+    // browser gesture requirement for audio
+    window.addEventListener("pointerdown", () => { ensureAudio(); }, { once: true });
+</script>
+</body>
+</html>
