@@ -960,15 +960,29 @@
             updateTargetUI();
         });
 
+        function expectedCodeForTargetId(id){
+            const map = {
+                "K-19": "K19-7QF4-19X2",
+                "R-07": "R07-3LM9-70P6",
+                "V-33": "V33-8NC1-33T0",
+                "S-12": "S12-5DR8-12H7"
+            };
+            return map[id] || null;
+        }
+
         code2.addEventListener("input", () => {
-            const expected = "TRAINING CONFIRMED";
-            state.code2Verified = (code2.value.trim().toUpperCase() === expected);
+            const expected = expectedCodeForTargetId(state.selectedTargetId);
+            const typed = code2.value.trim().toUpperCase();
+
+            state.code2Verified = !!expected && (typed === expected);
+
             code2Status.textContent = state.code2Verified ? "Code accepted." : "Awaiting code.";
-            if (state.code2Verified) {
-                pushLine("[AUTH] Second confirmation accepted.", "line ok");
-            }
+            if (state.code2Verified) pushLine("[AUTH] Second confirmation accepted.", "line ok");
+
             updateTargetUI();
-        });
+
+
+    });
 
         btnDeploy.addEventListener("click", () => {
             const t = TARGETS.find(x => x.id === state.selectedTargetId);
@@ -1419,7 +1433,7 @@
 
     confirmArm.addEventListener("click", () => {
         const v = phrase.value.trim();
-        if(v !== "CONFIRMED ARMED"){
+        if(v !== "ARMED"){
             modalMsg.textContent = "Phrase mismatch. Action rejected.";
             beep({freq: 180, dur: 0.09, type:"square", vol:0.06});
             return;
